@@ -222,6 +222,3 @@ For issues or questions:
 3. Verify your webcam is working
 4. Try recalibrating in different lighting
 
----
-
-**Disclaimer**: This software is for accessibility and educational purposes. Use at your own risk. The authors are not responsible for unintended actions caused by eye tracking errors.
