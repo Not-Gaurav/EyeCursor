@@ -23,6 +23,11 @@ VELOCITY_THRESHOLD = 0.5  # Minimum movement to register
 MOVEMENT_SCALE_X = 2.5
 MOVEMENT_SCALE_Y = 2.0
 
+# Eyeroll settings
+# Eyeroll allows fine cursor control by tracking iris position within eye
+EYEROLL_AMPLIFICATION = 0.15  # Higher = more sensitive to eye rolling
+EYEROLL_SMOOTHING = 0.5  # Smoothing for eyeroll data (0-1)
+
 # Blink detection settings
 BLINK_THRESHOLD = 0.25  # EAR threshold for blink detection
 BLINK_CONSECUTIVE_FRAMES = 2  # Frames to confirm blink
