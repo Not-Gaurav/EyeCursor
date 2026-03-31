@@ -148,10 +148,14 @@ def main():
                     blink_event = blink_detector.update(eye_data.left_ear,
                                                        eye_data.right_ear)
 
-                    # Update cursor position
+                    # Update cursor position with eyeroll data
                     if eye_data.gaze_point:
-                        cursor_controller.update_position(eye_data.gaze_point[0],
-                                                         eye_data.gaze_point[1])
+                        cursor_controller.update_position(
+                            eye_data.gaze_point[0],
+                            eye_data.gaze_point[1],
+                            eye_data.eyeroll_x,
+                            eye_data.eyeroll_y
+                        )
 
                     # Draw blink indicator
                     if blink_event:
