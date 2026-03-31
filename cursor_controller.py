@@ -90,6 +90,11 @@ class CursorController:
         self.scale_x = config.MOVEMENT_SCALE_X
         self.scale_y = config.MOVEMENT_SCALE_Y
 
+        # Eyeroll smoothing
+        self.eyeroll_smooth_x = 0.0
+        self.eyeroll_smooth_y = 0.0
+        self.eyeroll_smoothing = config.EYEROLL_SMOOTHING
+
         # Center offset (for drift correction)
         self.center_offset_x = 0.0
         self.center_offset_y = 0.0
@@ -118,30 +123,48 @@ class CursorController:
         self.gaze_max_y = gaze_max_y
         self.is_calibrated = True
 
-    def map_gaze_to_screen(self, gaze_x: float, gaze_y: float) -> Tuple[int, int]:
+    def map_gaze_to_screen(self, gaze_x: float, gaze_y: float,
+                           eyeroll_x: float = 0.0, eyeroll_y: float = 0.0) -> Tuple[int, int]:
         """
         Map normalized gaze coordinates to screen coordinates.
 
         Args:
             gaze_x: Gaze X in normalized coordinates (0-1)
             gaze_y: Gaze Y in normalized coordinates (0-1)
+            eyeroll_x: Horizontal eyeroll offset (-1 to 1, negative=left, positive=right)
+            eyeroll_y: Vertical eyeroll offset (-1 to 1, negative=up, positive=down)
 
         Returns:
             Tuple of (screen_x, screen_y)
         """
+        # Eyeroll amplification factor - makes eye rolling more responsive
+        eyeroll_amp = config.EYEROLL_AMPLIFICATION  # Adjust this to control eyeroll sensitivity
+
         if not self.is_calibrated:
+            # Apply eyeroll to fine-tune gaze position
+            adjusted_gaze_x = gaze_x + (eyeroll_x * eyeroll_amp)
+            adjusted_gaze_y = gaze_y + (eyeroll_y * eyeroll_amp)
+
+            # Clamp to valid range
+            adjusted_gaze_x = np.clip(adjusted_gaze_x, 0, 1)
+            adjusted_gaze_y = np.clip(adjusted_gaze_y, 0, 1)
+
             # Use default mapping
-            screen_x = int((1 - gaze_x) * self.screen_width)  # Mirror X
-            screen_y = int(gaze_y * self.screen_height)
+            screen_x = int((1 - adjusted_gaze_x) * self.screen_width)  # Mirror X
+            screen_y = int(adjusted_gaze_y * self.screen_height)
         else:
+            # Apply eyeroll to fine-tune gaze before calibration mapping
+            adjusted_gaze_x = gaze_x + (eyeroll_x * eyeroll_amp)
+            adjusted_gaze_y = gaze_y + (eyeroll_y * eyeroll_amp)
+
             # Map from calibration range to screen
             # Clamp to boundaries
-            gaze_x = np.clip(gaze_x, self.gaze_min_x, self.gaze_max_x)
-            gaze_y = np.clip(gaze_y, self.gaze_min_y, self.gaze_max_y)
+            adjusted_gaze_x = np.clip(adjusted_gaze_x, self.gaze_min_x, self.gaze_max_x)
+            adjusted_gaze_y = np.clip(adjusted_gaze_y, self.gaze_min_y, self.gaze_max_y)
 
             # Normalize to 0-1 within calibration range
-            norm_x = (gaze_x - self.gaze_min_x) / (self.gaze_max_x - self.gaze_min_x)
-            norm_y = (gaze_y - self.gaze_min_y) / (self.gaze_max_y - self.gaze_min_y)
+            norm_x = (adjusted_gaze_x - self.gaze_min_x) / (self.gaze_max_x - self.gaze_min_x)
+            norm_y = (adjusted_gaze_y - self.gaze_min_y) / (self.gaze_max_y - self.gaze_min_y)
 
             # Apply scaling around center (0.5)
             norm_x = (norm_x - 0.5) * self.scale_x + 0.5
@@ -157,13 +180,16 @@ class CursorController:
 
         return (screen_x, screen_y)
 
-    def update_position(self, gaze_x: Optional[float], gaze_y: Optional[float]) -> Tuple[Optional[int], Optional[int]]:
+    def update_position(self, gaze_x: Optional[float], gaze_y: Optional[float],
+                       eyeroll_x: float = 0.0, eyeroll_y: float = 0.0) -> Tuple[Optional[int], Optional[int]]:
         """
         Update cursor position from gaze coordinates.
 
         Args:
             gaze_x: Gaze X or None if not detected
             gaze_y: Gaze Y or None if not detected
+            eyeroll_x: Horizontal eyeroll offset for fine control
+            eyeroll_y: Vertical eyeroll offset for fine control
 
         Returns:
             Tuple of (screen_x, screen_y) or (None, None)
@@ -171,8 +197,16 @@ class CursorController:
         if gaze_x is None or gaze_y is None:
             return (None, None)
 
-        # Map to screen coordinates
-        target_x, target_y = self.map_gaze_to_screen(gaze_x, gaze_y)
+        # Apply smoothing to eyeroll data
+        self.eyeroll_smooth_x = (self.eyeroll_smooth_x * self.eyeroll_smoothing +
+                                eyeroll_x * (1 - self.eyeroll_smoothing))
+        self.eyeroll_smooth_y = (self.eyeroll_smooth_y * self.eyeroll_smoothing +
+                                eyeroll_y * (1 - self.eyeroll_smoothing))
+
+        # Map to screen coordinates with eyeroll adjustment
+        target_x, target_y = self.map_gaze_to_screen(gaze_x, gaze_y,
+                                                      self.eyeroll_smooth_x,
+                                                      self.eyeroll_smooth_y)
 
         # Apply smoothing
         screen_x, screen_y = self.smooth_cursor.update(target_x, target_y)
