@@ -24,6 +24,13 @@ class EyeData:
     gaze_point: Optional[Tuple[float, float]] = None  # Normalized (x, y)
     landmarks: Optional[List] = None
 
+    # Eyeroll tracking - iris position relative to eye corners
+    # Range: -1 to 1, where 0 is center, negative is left/up, positive is right/down
+    eyeroll_x: float = 0.0  # Horizontal eyeroll (left/right)
+    eyeroll_y: float = 0.0  # Vertical eyeroll (up/down)
+    left_iris_offset: Optional[Tuple[float, float]] = None  # (x_offset, y_offset) for left eye
+    right_iris_offset: Optional[Tuple[float, float]] = None  # (x_offset, y_offset) for right eye
+
 
 class EyeTracker:
     """
@@ -143,6 +150,61 @@ class EyeTracker:
         gaze_y = (left_eye[1] + right_eye[1]) / 2
         return (gaze_x, gaze_y)
 
+    def calculate_eyeroll(self, landmarks, iris_indices: List[int],
+                         eye_left_idx: int, eye_right_idx: int,
+                         eye_top_idx: int, eye_bottom_idx: int) -> Tuple[float, float]:
+        """
+        Calculate eyeroll - the position of iris within the eye boundaries.
+
+        This measures how far the iris is from the center of the eye socket,
+        which is essential for detecting eye rolling movements.
+
+        Args:
+            landmarks: MediaPipe face landmarks
+            iris_indices: List of iris landmark indices
+            eye_left_idx: Index of left eye corner
+            eye_right_idx: Index of right eye corner
+            eye_top_idx: Index of top eye point
+            eye_bottom_idx: Index of bottom eye point
+
+        Returns:
+            Tuple of (x_offset, y_offset) where:
+            - x_offset: -1 (iris at left corner) to 1 (iris at right corner), 0 = center
+            - y_offset: -1 (iris at top) to 1 (iris at bottom), 0 = center
+        """
+        # Get iris center
+        iris_points = [(landmarks[i].x, landmarks[i].y) for i in iris_indices]
+        iris_x = sum(p[0] for p in iris_points) / len(iris_points)
+        iris_y = sum(p[1] for p in iris_points) / len(iris_points)
+
+        # Get eye boundaries
+        eye_left = landmarks[eye_left_idx]
+        eye_right = landmarks[eye_right_idx]
+        eye_top = landmarks[eye_top_idx]
+        eye_bottom = landmarks[eye_bottom_idx]
+
+        # Calculate eye center
+        eye_center_x = (eye_left.x + eye_right.x) / 2
+        eye_center_y = (eye_top.y + eye_bottom.y) / 2
+
+        # Calculate eye dimensions
+        eye_width = abs(eye_right.x - eye_left.x)
+        eye_height = abs(eye_bottom.y - eye_top.y)
+
+        if eye_width == 0 or eye_height == 0:
+            return (0.0, 0.0)
+
+        # Calculate iris offset from eye center, normalized by eye size
+        # This gives us how far the iris has "rolled" from center
+        x_offset = (iris_x - eye_center_x) / (eye_width * 0.5)  # -1 to 1 range
+        y_offset = (iris_y - eye_center_y) / (eye_height * 0.5)  # -1 to 1 range
+
+        # Clamp to reasonable range
+        x_offset = max(-2.0, min(2.0, x_offset))
+        y_offset = max(-2.0, min(2.0, y_offset))
+
+        return (x_offset, y_offset)
+
     def process_frame(self, frame: np.ndarray) -> EyeData:
         """
         Process a video frame and extract eye tracking data.
@@ -188,6 +250,24 @@ class EyeTracker:
                 if data.left_eye_center and data.right_eye_center:
                     data.gaze_point = self.get_gaze_point(data.left_eye_center,
                                                           data.right_eye_center)
+
+                # Calculate eyeroll (iris position relative to eye boundaries)
+                data.left_iris_offset = self.calculate_eyeroll(
+                    face_landmarks, config.LEFT_IRIS,
+                    config.LEFT_EYE_LEFT, config.LEFT_EYE_RIGHT,
+                    config.LEFT_EYE_TOP, config.LEFT_EYE_BOTTOM
+                )
+                data.right_iris_offset = self.calculate_eyeroll(
+                    face_landmarks, config.RIGHT_IRIS,
+                    config.RIGHT_EYE_LEFT, config.RIGHT_EYE_RIGHT,
+                    config.RIGHT_EYE_TOP, config.RIGHT_EYE_BOTTOM
+                )
+
+                # Average both eyes for overall eyeroll
+                if data.left_iris_offset and data.right_iris_offset:
+                    data.eyeroll_x = (data.left_iris_offset[0] + data.right_iris_offset[0]) / 2
+                    data.eyeroll_y = (data.left_iris_offset[1] + data.right_iris_offset[1]) / 2
+
             except (IndexError, AttributeError):
                 # Fallback to eye corners if iris not available
                 left_indices = config.LEFT_EYE_INDICES
@@ -258,6 +338,39 @@ class EyeTracker:
         color = config.COLOR_CURSOR if status == "BLINK" else config.COLOR_EYE_LANDMARKS
         cv2.putText(frame, f"Eyes: {status}", (10, 80),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+        # Draw eyeroll values
+        cv2.putText(frame, f"Eyeroll X: {data.eyeroll_x:+.2f}", (10, 105),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_TEXT, 2)
+        cv2.putText(frame, f"Eyeroll Y: {data.eyeroll_y:+.2f}", (10, 130),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, config.COLOR_TEXT, 2)
+
+        # Draw eyeroll visualization (crosshair showing roll direction)
+        center_x = w // 2
+        center_y = h // 2
+        roll_line_length = int(min(w, h) * 0.15)
+
+        # Calculate eyeroll indicator position
+        indicator_x = center_x + int(data.eyeroll_x * roll_line_length)
+        indicator_y = center_y + int(data.eyeroll_y * roll_line_length)
+
+        # Draw crosshair background
+        cv2.line(frame, (center_x - roll_line_length, center_y),
+                (center_x + roll_line_length, center_y), (50, 50, 50), 2)
+        cv2.line(frame, (center_x, center_y - roll_line_length),
+                (center_x, center_y + roll_line_length), (50, 50, 50), 2)
+        cv2.circle(frame, (center_x, center_y), roll_line_length, (50, 50, 50), 2)
+
+        # Draw eyeroll indicator
+        cv2.circle(frame, (indicator_x, indicator_y), 10, config.COLOR_CURSOR, -1)
+        cv2.circle(frame, (indicator_x, indicator_y), 12, (255, 255, 255), 2)
+
+        # Draw eyeroll direction arrow
+        if abs(data.eyeroll_x) > 0.1 or abs(data.eyeroll_y) > 0.1:
+            end_x = center_x + int(data.eyeroll_x * roll_line_length * 1.5)
+            end_y = center_y + int(data.eyeroll_y * roll_line_length * 1.5)
+            cv2.arrowedLine(frame, (center_x, center_y), (end_x, end_y),
+                          config.COLOR_EYE_LANDMARKS, 3, tipLength=0.3)
 
         return frame
 
