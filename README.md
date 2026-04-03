@@ -35,6 +35,7 @@ EyeCursor uses **MediaPipe Face Mesh** to detect 468 facial landmarks in real-ti
 The gaze point is mapped from normalized camera coordinates (0-1) to screen coordinates using calibration data.
 
 ### Blink Detection
+<img width="1002" height="703" alt="EyeCursor - Eye Tracking Mouse Control - visual selection (1)" src="https://github.com/user-attachments/assets/96d4e7b3-1b93-4c56-8e86-3ea7c5fce57c" />
 
 Intentional blinks are distinguished from natural blinking using:
 
@@ -140,6 +141,8 @@ This creates smooth, natural cursor movement without lag.
 - **Calibration**: Recalibrate if accuracy degrades
 
 ### Troubleshooting
+<img width="662" height="642" alt="EyeCursor - Eye Tracking Mouse Control - visual selection" src="https://github.com/user-attachments/assets/e6f68084-40e2-4fb1-9050-695a68254838" />
+
 
 | Issue | Solution |
 |-------|----------|
